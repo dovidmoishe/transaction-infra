@@ -28,12 +28,20 @@ type RootLayoutProps = {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html
-      className={`${instrumentSans.variable} ${geistSans.variable} ${geistMono.variable}`}
+      className={`dark ${instrumentSans.variable} ${geistSans.variable} ${geistMono.variable}`}
       lang="en"
       suppressHydrationWarning
     >
       <body>
-        <RootProvider>{children}</RootProvider>
+        <RootProvider
+          theme={{
+            defaultTheme: "dark",
+            enableSystem: false,
+            forcedTheme: "dark",
+          }}
+        >
+          {children}
+        </RootProvider>
       </body>
     </html>
   );

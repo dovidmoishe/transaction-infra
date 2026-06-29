@@ -22,4 +22,7 @@ export const baseOptions = {
   nav: {
     title: "SlotPilot",
   },
+  themeSwitch: {
+    enabled: false,
+  },
 } satisfies BaseLayoutProps;
