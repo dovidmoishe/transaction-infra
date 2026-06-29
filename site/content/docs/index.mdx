@@ -1,0 +1,374 @@
+---
+title: SlotPilot
+description: AI-assisted Solana Transaction Control Tower
+---
+
+SlotPilot is an AI-assisted Solana transaction control tower.
+
+Most Solana apps stop at `sendTransaction`. SlotPilot treats submission as an operational lifecycle:
+
+- observe network state
+- submit through Jito bundles
+- verify commitment progression
+- classify failures
+- retry from observed context
+- prove every attempt with lifecycle logs
+
+| Capability | What it does |
+| --- | --- |
+| Yellowstone live stream | Reads live slot and transaction updates |
+| Jito bundle submission | Submits signed transactions through the block engine |
+| Dynamic tip oracle | Selects tip account and tip size per attempt |
+| AI retry agent | Returns structured retry, hold, or abort decisions |
+| Lifecycle logs | Stores append-only proof for every attempt |
+
+## 1. Problem Statement
+
+Sending a Solana transaction is only one part of the process.
+
+Before a transaction lands, it passes through leader scheduling, TPU ingestion, block production, shred propagation, and commitment progression. Production systems need to understand these stages instead of only relying on RPC polling.
+
+The key challenge is simple:
+
+> A Jito bundle id does not prove the transaction landed.
+
+SlotPilot tracks the transaction through `processed`, `confirmed`, and `finalized` states before treating the attempt as proven.
+
+## 2. Architecture Overview
+
+SlotPilot is a modular monolith with an external AI decision agent.
+
+The transaction engine observes, builds, signs, submits, and tracks. The AI agent only receives observed context and returns an operational decision. It does not hold private keys and does not sign transactions.
+
+<div className="doc-diagram" aria-label="SlotPilot architecture flowchart">
+  <div className="doc-node" data-shape="terminator"><strong>Yellowstone gRPC Stream</strong><span>slot and transaction updates</span></div>
+  <div className="doc-node" data-shape="process"><strong>Slot + Leader Tracker</strong><span>current slot and leader windows</span></div>
+  <div className="doc-node" data-shape="decision"><strong>Submission Planner</strong><span>submit, wait, or avoid</span></div>
+  <div className="doc-node" data-shape="process"><strong>Blockhash Manager</strong><span>fresh blockhash and expiry risk</span></div>
+  <div className="doc-node" data-shape="process"><strong>Transaction Builder</strong><span>instruction, fee payer, signature</span></div>
+  <div className="doc-node" data-shape="decision"><strong>Tip Oracle</strong><span>tip account and tip size</span></div>
+  <div className="doc-node" data-shape="document"><strong>Jito Bundle Builder</strong><span>user transaction plus tip transaction</span></div>
+  <div className="doc-node" data-shape="terminator"><strong>Jito Block Engine</strong><span>bundle submission</span></div>
+  <div className="doc-node" data-shape="document"><strong>Lifecycle Tracker</strong><span>submitted, processed, confirmed, finalized</span></div>
+  <div className="doc-node" data-shape="decision"><strong>Failure Classifier</strong><span>normalized failure class</span></div>
+  <div className="doc-node" data-shape="agent" data-agent="true"><strong>AI Retry Agent</strong><span>retry, hold, or abort JSON</span></div>
+  <div className="doc-node" data-shape="process"><strong>Retry Executor</strong><span>safe resubmission path</span></div>
+</div>
+
+<div className="doc-callout">
+  The AI agent sits outside the core transaction engine. It never signs transactions and never holds private keys. It only receives observed context and returns structured operational decisions.
+</div>
+
+## 3. Data Flow
+
+<div className="doc-flow">
+  <div className="doc-step">Subscribe to Yellowstone gRPC slot and transaction streams.</div>
+  <div className="doc-step">Track current slot and upcoming leader windows.</div>
+  <div className="doc-step">Fetch a fresh blockhash using processed or confirmed commitment.</div>
+  <div className="doc-step">Build and sign a simple Solana transfer transaction.</div>
+  <div className="doc-step">Select a Jito tip account and calculate a dynamic tip.</div>
+  <div className="doc-step">Wrap the signed transaction and tip transaction into a Jito bundle.</div>
+  <div className="doc-step">Submit the bundle to the Jito Block Engine.</div>
+  <div className="doc-step">Record submitted_at timestamp and submitted_slot.</div>
+  <div className="doc-step">Watch Yellowstone transaction updates for processed, confirmed, and finalized.</div>
+  <div className="doc-step">Calculate latency deltas between lifecycle stages.</div>
+  <div className="doc-step">If failure occurs, classify the reason.</div>
+  <div className="doc-step">Send failure context to the AI agent.</div>
+  <div className="doc-step">Agent decides whether to retry, hold, or abort.</div>
+  <div className="doc-step">Retry executor follows the agent decision.</div>
+</div>
+
+## 4. Component Breakdown
+
+<div className="doc-grid">
+  <div className="doc-card">
+    <strong>A. Yellowstone Stream Service</strong>
+    Maintains live subscriptions to Solana network data.
+    <ul>
+      <li>Stream slot updates</li>
+      <li>Stream transaction updates</li>
+      <li>Reconnect on disconnect</li>
+      <li>Handle backpressure</li>
+      <li>Emit normalized internal events</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>B. Slot + Leader Tracker</strong>
+    Understands where the network currently is.
+    <ul>
+      <li>Track current slot</li>
+      <li>Track skipped or delayed slots</li>
+      <li>Detect upcoming leader windows</li>
+      <li>Provide submission timing context</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>C. Submission Planner</strong>
+    Decides if the current network moment is good for submission.
+    <ul>
+      <li>Check current slot</li>
+      <li>Check leader proximity</li>
+      <li>Avoid poor timing windows</li>
+      <li>Pass submission context to the bundle builder</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>D. Blockhash Manager</strong>
+    Keeps transactions fresh.
+    <ul>
+      <li>Fetch latest blockhash</li>
+      <li>Track lastValidBlockHeight</li>
+      <li>Detect blockhash expiry risk</li>
+      <li>Refresh blockhash during retries</li>
+      <li>Avoid finalized commitment for time-sensitive blockhash fetching</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>E. Transaction Builder</strong>
+    Creates the actual Solana transaction.
+    <ul>
+      <li>Build transfer instruction</li>
+      <li>Attach fresh blockhash</li>
+      <li>Add a unique per-attempt memo</li>
+      <li>Set fee payer</li>
+      <li>Sign transaction</li>
+      <li>Support fault injection with stale blockhash for demo failure</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>F. Tip Oracle</strong>
+    Chooses the Jito bundle tip dynamically.
+    <ul>
+      <li>Fetch available Jito tip accounts</li>
+      <li>Analyze recent tip/network data</li>
+      <li>Avoid hardcoded fixed tips</li>
+      <li>Balance cost and landing probability</li>
+      <li>Return selected tip amount and explanation</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>G. Jito Bundle Builder</strong>
+    Packages transactions for Jito.
+    <ul>
+      <li>Add user transaction</li>
+      <li>Add tip transaction</li>
+      <li>Serialize signed transactions</li>
+      <li>Submit bundle to Jito Block Engine</li>
+      <li>Capture bundle id and transaction signatures</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>H. Lifecycle Tracker</strong>
+    Proves what happened after submission.
+    <ul>
+      <li>Mark submitted</li>
+      <li>Detect processed</li>
+      <li>Detect confirmed</li>
+      <li>Detect finalized</li>
+      <li>Store timestamps</li>
+      <li>Store slot numbers</li>
+      <li>Calculate latency deltas</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>I. Failure Classifier</strong>
+    Normalizes raw failures into useful operational categories.
+    <ul>
+      <li>expired_blockhash</li>
+      <li>fee_or_tip_too_low</li>
+      <li>compute_exceeded</li>
+      <li>bundle_not_landed</li>
+      <li>skipped_leader</li>
+      <li>unknown</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>J. AI Retry Agent</strong>
+    Owns one real operational decision.
+    <ul>
+      <li>Receive failure context</li>
+      <li>Reason about likely cause</li>
+      <li>Decide retry, hold, or abort</li>
+      <li>Decide whether to refresh blockhash</li>
+      <li>Decide whether to increase or recalculate tip</li>
+      <li>Decide whether to delay submission by some slots</li>
+    </ul>
+  </div>
+  <div className="doc-card">
+    <strong>K. Retry Executor</strong>
+    Executes the AI decision safely.
+    <ul>
+      <li>Refresh blockhash if requested</li>
+      <li>Recalculate tip if requested</li>
+      <li>Rebuild and resign transaction</li>
+      <li>Wait delay slots if requested</li>
+      <li>Resubmit bundle</li>
+      <li>Append retry attempt to lifecycle logs</li>
+    </ul>
+  </div>
+</div>
+
+### Blockhash Commitment Rule
+
+Finalized blockhashes are older and reduce the usable lifetime of a transaction. For time-sensitive submissions, the system should use `processed` or `confirmed` commitment.
+
+### AI Agent Response
+
+```json
+{
+  "decision": "retry",
+  "reason": "The transaction failed because the blockhash expired before landing.",
+  "refreshBlockhash": true,
+  "tipMultiplier": 1.2,
+  "delaySlots": 0
+}
+```
+
+## 5. Transaction Lifecycle Timeline
+
+<div className="doc-timeline">
+  <div className="doc-stage">
+    <strong>Submitted</strong>
+    The bundle was sent to the Jito Block Engine. This only proves submission, not landing.
+  </div>
+  <div className="doc-stage">
+    <strong>Processed</strong>
+    A validator processed the transaction in a block. This is the fastest signal but lowest confidence.
+  </div>
+  <div className="doc-stage">
+    <strong>Confirmed</strong>
+    The cluster has voted enough on the block. This gives stronger confidence that the transaction landed on the main fork.
+  </div>
+  <div className="doc-stage">
+    <strong>Finalized</strong>
+    The block has become rooted and is very unlikely to be reverted.
+  </div>
+</div>
+
+<div className="doc-metrics">
+  <div className="doc-metric">submitted_to_processed_ms</div>
+  <div className="doc-metric">processed_to_confirmed_ms</div>
+  <div className="doc-metric">confirmed_to_finalized_ms</div>
+  <div className="doc-metric">total_lifecycle_ms</div>
+</div>
+
+## 6. Failure Recovery Loop
+
+The system does not blindly retry. It retries based on observed context and AI-generated structured decisions.
+
+<div className="doc-loop" aria-label="Failure recovery loop flowchart">
+  <div className="doc-node" data-shape="terminator"><strong>Failure Detected</strong></div>
+  <div className="doc-node" data-shape="process"><strong>Failure Classifier</strong></div>
+  <div className="doc-node" data-shape="agent"><strong>AI Agent Reasoning</strong></div>
+  <div className="doc-node" data-shape="decision"><strong>Retry Decision</strong></div>
+  <div className="doc-node" data-shape="process"><strong>Refresh / Tip / Delay</strong></div>
+  <div className="doc-node" data-shape="terminator"><strong>Resubmit Bundle</strong></div>
+  <div className="doc-node" data-shape="document"><strong>Lifecycle Tracker</strong></div>
+</div>
+
+## 7. Fault Injection Demo
+
+The required demo intentionally submits one transaction with a stale or expired blockhash.
+
+| Step | Expected flow |
+| --- | --- |
+| 1 | Build transaction with expired blockhash. |
+| 2 | Submit bundle. |
+| 3 | Transaction fails with blockhash expiry. |
+| 4 | Failure classifier marks it as `expired_blockhash`. |
+| 5 | AI agent receives failure context. |
+| 6 | Agent decides to refresh blockhash, recalculate tip, and retry. |
+| 7 | Retry executor rebuilds and resubmits. |
+| 8 | Lifecycle tracker records the successful retry. |
+
+## 8. Lifecycle Log Format
+
+Successful attempt:
+
+```json
+{
+  "runId": "run_001",
+  "attempt": 1,
+  "bundleId": "bundle_xxx",
+  "signature": "tx_sig_xxx",
+  "submittedAt": "2026-06-23T10:00:01.120Z",
+  "submittedSlot": 344100001,
+  "processedAt": "2026-06-23T10:00:01.530Z",
+  "processedSlot": 344100002,
+  "confirmedAt": "2026-06-23T10:00:02.410Z",
+  "confirmedSlot": 344100003,
+  "finalizedAt": "2026-06-23T10:00:14.900Z",
+  "finalizedSlot": 344100035,
+  "tipLamports": 12000,
+  "submittedToProcessedMs": 410,
+  "processedToConfirmedMs": 880,
+  "confirmedToFinalizedMs": 12490,
+  "failureClass": null,
+  "agentDecision": null
+}
+```
+
+Failed and retried attempt:
+
+```json
+{
+  "runId": "run_008",
+  "attempt": 1,
+  "failureClass": "expired_blockhash",
+  "agentDecision": {
+    "decision": "retry",
+    "reason": "The blockhash expired before landing. Refresh blockhash and resubmit.",
+    "refreshBlockhash": true,
+    "tipMultiplier": 1.2,
+    "delaySlots": 0
+  }
+}
+```
+
+## 9. README Questions
+
+### What does the delta between `processed_at` and `confirmed_at` tell you about network health at the time of submission?
+
+The delta between `processed_at` and `confirmed_at` shows how quickly the network moved from local block processing to broader vote confirmation. A small delta suggests healthy propagation and voting. A large delta can indicate congestion, slow propagation, fork uncertainty, skipped slots, or validator voting delays.
+
+### Why should you never use finalized commitment when fetching a blockhash for a time-sensitive transaction?
+
+Finalized commitment gives an older blockhash because it waits for the block to become rooted. For time-sensitive transactions, an older blockhash reduces the remaining lifetime before expiry. Processed or confirmed commitment gives a fresher blockhash and more time for the transaction to land.
+
+### What happens to your bundle if the Jito leader skips their slot?
+
+If the Jito leader skips their slot, the bundle may not land in that slot. The system must detect that the transaction did not progress, refresh the blockhash if expiry risk increases, recalculate the tip, and resubmit during another valid leader window.
+
+## 10. Infrastructure Decisions
+
+<div className="doc-decisions">
+  <div className="doc-decision">
+    <strong>Modular monolith</strong>
+    <span>Used instead of microservices because this is a 7-day infra prototype.</span>
+  </div>
+  <div className="doc-decision">
+    <strong>JSONL logs</strong>
+    <span>Used instead of a database because append-only logs are easy to verify and submit.</span>
+  </div>
+  <div className="doc-decision">
+    <strong>Yellowstone streaming</strong>
+    <span>Used instead of RPC-only polling because the bounty requires stream-based confirmation.</span>
+  </div>
+  <div className="doc-decision">
+    <strong>Separated AI agent</strong>
+    <span>Kept outside signing logic for safety and clean architecture.</span>
+  </div>
+  <div className="doc-decision">
+    <strong>CLI-first demo</strong>
+    <span>Used because it is easier to reproduce and judge.</span>
+  </div>
+</div>
+
+## 11. Limitations and Future Improvements
+
+- Add optional external analytics export while retaining JSONL as the proof source.
+- Add dashboard for live lifecycle visualization.
+- Add more advanced tip percentile modeling.
+- Add support for more transaction types.
+- Add validator/leader performance scoring.
+- Add alerting for abnormal confirmation latency.

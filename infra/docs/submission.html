@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SlotPilot Submission</title>
+    <style>
+      body { font-family: Inter, Arial, sans-serif; line-height: 1.5; max-width: 880px; margin: 40px auto; padding: 0 20px; color: #111827; }
+      h1, h2 { line-height: 1.15; }
+      code, pre { background: #f3f4f6; border-radius: 6px; }
+      pre { padding: 14px; overflow: auto; }
+      .note { border-left: 4px solid #f59e0b; padding-left: 14px; color: #374151; }
+    </style>
+  </head>
+  <body>
+    <h1>SlotPilot</h1>
+    <p><strong>Tagline:</strong> AI-assisted Solana transaction control tower for Jito bundle submission, Yellowstone lifecycle proof, failure classification, and retry decisions.</p>
+
+    <h2>What It Does</h2>
+    <p>SlotPilot treats Solana transaction delivery as an operational lifecycle instead of a single RPC call. It builds signed transfers, prices Jito tips, submits through Jito bundles, watches live Yellowstone data, classifies failures, and records append-only JSONL evidence for every attempt.</p>
+
+    <h2>Technical Highlights</h2>
+    <ul>
+      <li>TypeScript/Node modular monolith with no database.</li>
+      <li>Dockerized Linux runtime for live Yellowstone compatibility.</li>
+      <li>Live preflight passes Solana RPC, Jito tip accounts, Jito leader planning, OpenAI mode, and Solinfra Yellowstone slot streaming.</li>
+      <li>OpenAI retry agent returns strict JSON decisions and never receives private keys.</li>
+      <li>Jito bundle integration returns real bundle IDs and records signatures, slots, tips, and decision attribution.</li>
+      <li>Strict live verifier rejects mock or incomplete evidence packages.</li>
+    </ul>
+
+    <h2>Demo Commands</h2>
+    <pre><code>cd infra
+docker build -t slotpilot .
+docker run --rm --env-file .env -v "$PWD/logs:/app/logs" slotpilot \
+  node dist/demo/preflight.js --require-live</code></pre>
+
+    <h2>Status</h2>
+    <p>Code, Docker runtime, docs, mock demos, live provider preflight, Jito submission path, Yellowstone stream path, and OpenAI retry attribution are implemented.</p>
+    <p class="note">Caveat: the strict final live evidence gate is not complete yet. Live attempts produced real Jito bundle IDs and OpenAI retry decisions, but did not produce 10 finalized bundle lifecycle records before submission time.</p>
+
+    <h2>Suggested Track</h2>
+    <p>Infrastructure / AI Agents.</p>
+  </body>
+</html>

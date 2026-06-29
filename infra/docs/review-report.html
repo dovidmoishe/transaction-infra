@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SlotPilot Production Review</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+      body { margin: 0; background: #080b10; color: #e8edf4; }
+      main { width: min(1040px, calc(100% - 40px)); margin: 40px auto 80px; }
+      h1, h2 { margin: 0 0 14px; }
+      h1 { font-size: 36px; }
+      h2 { margin-top: 32px; font-size: 20px; }
+      p { color: #aeb9c8; line-height: 1.6; }
+      .scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+      .score, .finding { border: 1px solid #273241; border-radius: 8px; background: #111720; padding: 16px; }
+      .score strong { display: block; font-size: 26px; color: #62d5a7; }
+      .finding { margin: 10px 0; }
+      .finding b { color: #f3c96b; }
+      code { color: #7fc8ff; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 12px; border-bottom: 1px solid #273241; text-align: left; vertical-align: top; }
+      th { color: #7fc8ff; }
+      .not-ready { color: #f38b8b; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>SlotPilot Production Review</h1>
+      <p>
+        Review scope: off-chain Solana transaction infrastructure, Jito bundle
+        submission, Yellowstone lifecycle tracking, AI retry control, evidence
+        integrity, and operational documentation.
+      </p>
+
+      <div class="scores">
+        <div class="score"><strong>B</strong>Security</div>
+        <div class="score"><strong>A-</strong>Correctness</div>
+        <div class="score"><strong>B+</strong>Error handling</div>
+        <div class="score"><strong>B+</strong>Testing</div>
+        <div class="score"><strong>A</strong>Organization</div>
+        <div class="score"><strong>A-</strong>Documentation</div>
+      </div>
+
+      <h2>Readiness</h2>
+      <p class="not-ready">Not yet proven ready for a bounty-complete live submission.</p>
+      <p>
+        The implementation and mock evidence gates pass. Mainnet readiness remains
+        unproven until real Jito and Yellowstone runs, explorer checks, and public
+        architecture deployment are complete.
+      </p>
+
+      <h2>Findings</h2>
+      <div class="finding">
+        <b>High · Production readiness</b>
+        <p>
+          No credentialed Jito/Yellowstone/OpenAI evidence package exists yet.
+          Run <code>docs/live-runbook.md</code> and pass
+          <code>demo:verify-logs -- --require-live</code>.
+        </p>
+      </div>
+      <div class="finding">
+        <b>Medium · Deployment</b>
+        <p>
+          The architecture source is complete but not publicly hosted. Deploy the
+          documentation site and submit its <code>/docs/architecture</code> URL.
+        </p>
+      </div>
+      <div class="finding">
+        <b>Low · Documentation</b>
+        <p>
+          Real network observations are absent by design. Add measured lifecycle
+          observations only after the final live run.
+        </p>
+      </div>
+
+      <h2>Verified Controls</h2>
+      <table>
+        <thead><tr><th>Control</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td>Keys isolated from AI</td><td>Agent receives typed failure context only.</td></tr>
+          <tr><td>Wire-preserving simulation</td><td>Signed bytes deserialize as a versioned transaction without blockhash replacement.</td></tr>
+          <tr><td>Stream resilience</td><td>Slot reconnect plus signature reconnect/replay unit coverage.</td></tr>
+          <tr><td>Evidence integrity</td><td>Unique IDs, monotonic lifecycle, linked AI retry, and JSONL cross-checks.</td></tr>
+          <tr><td>Secrets</td><td>Environment-only configuration and ignored dotenv files.</td></tr>
+          <tr><td>Quality gate</td><td>Lint, build, 25 unit tests, and 1 e2e test pass.</td></tr>
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

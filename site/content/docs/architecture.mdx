@@ -1,0 +1,120 @@
+---
+title: Architecture
+description: SlotPilot system architecture, data flow, trust boundaries, and failure recovery
+---
+
+# SlotPilot Architecture
+
+SlotPilot is a modular monolith for observing, submitting, proving, and recovering Solana transactions. The transaction engine owns keys and execution. The AI agent is an external decision boundary that receives operational context but cannot sign or submit transactions.
+
+## System Flow
+
+<div className="doc-diagram" aria-label="SlotPilot system architecture">
+  <div className="doc-node" data-shape="terminator"><strong>Yellowstone gRPC</strong><span>normalized, reconnecting slot and replayable signature streams</span></div>
+  <div className="doc-node" data-shape="process"><strong>Jito Leader Planner</strong><span>next connected leader and wait window</span></div>
+  <div className="doc-node" data-shape="process"><strong>Blockhash Manager</strong><span>confirmed blockhash and expiry context</span></div>
+  <div className="doc-node" data-shape="process"><strong>Transaction Builder</strong><span>transfer, unique memo, compute budget, payer signature</span></div>
+  <div className="doc-node" data-shape="decision"><strong>Tip Oracle</strong><span>Jito tip floor, Solana pressure, retry multiplier</span></div>
+  <div className="doc-node" data-shape="document"><strong>Jito Bundle</strong><span>single signed transfer transaction with embedded Jito tip</span></div>
+  <div className="doc-node" data-shape="terminator"><strong>Block Engine</strong><span>base64 sendBundle submission</span></div>
+  <div className="doc-node" data-shape="document"><strong>Lifecycle Store</strong><span>append-only JSONL proof</span></div>
+  <div className="doc-node" data-shape="decision"><strong>Failure Classifier</strong><span>normalized operational cause</span></div>
+  <div className="doc-node" data-shape="agent" data-agent="true"><strong>AI Retry Agent</strong><span>strict retry, hold, or abort decision</span></div>
+  <div className="doc-node" data-shape="process"><strong>Retry Executor</strong><span>refresh, reprice, delay, rebuild, resubmit</span></div>
+</div>
+
+## Submission Sequence
+
+<div className="doc-flow">
+  <div className="doc-step">Open the Yellowstone background slot subscription and record the current slot.</div>
+  <div className="doc-step">Query the next connected Jito leader and wait until the configured submission window.</div>
+  <div className="doc-step">Fetch a confirmed blockhash and its last valid block height.</div>
+  <div className="doc-step">Read the Jito landed-tip median and recent Solana prioritization-fee pressure.</div>
+  <div className="doc-step">Select a rotating Jito tip account and calculate a bounded tip.</div>
+  <div className="doc-step">Build and sign one transaction containing the user transfer, unique memo, Jito tip memo, and Jito tip transfer.</div>
+  <div className="doc-step">Submit the transaction through `sendBundle` using base64 encoding.</div>
+  <div className="doc-step">Record the bundle id as submission evidence only.</div>
+  <div className="doc-step">Subscribe to Yellowstone transaction status with replay from the recorded submission slot.</div>
+  <div className="doc-step">Use slot commitment updates to prove processed, confirmed, and finalized progression.</div>
+  <div className="doc-step">Use RPC status only for reconciliation after a Yellowstone timeout.</div>
+  <div className="doc-step">Append timestamps, slots, sources, tip reasoning, and latency deltas to JSONL.</div>
+</div>
+
+## Trust Boundaries
+
+| Boundary | Holds private keys | Signs | Submits | Makes retry decision |
+| --- | --- | --- | --- | --- |
+| Transaction engine | Yes | Yes | Yes | No |
+| Jito adapter | No | No | Yes | No |
+| Yellowstone adapter | No | No | No | No |
+| AI agent | No | No | No | Yes |
+| JSONL store | No | No | No | No |
+
+The AI prompt contains failure class, slots, blockhash age, tip amount, lifecycle timings, and previous failures. It never contains payer secret material or serialized signing authority.
+
+## Tip Intelligence
+
+The tip baseline is the larger of:
+
+- configured minimum tip
+- Jito's latest median or EMA landed-tip floor
+
+That baseline is adjusted by:
+
+- a bounded multiplier derived from Solana prioritization fees
+- a failure multiplier for low-tip or non-landed attempts
+- the AI agent's retry multiplier
+
+The final amount is capped by the configured maximum. The selected tip account, source, amount, and explanation are written to lifecycle logs.
+
+## Lifecycle Proof
+
+Yellowstone is the primary source:
+
+1. Transaction status replay starts at `submittedSlot`, closing the race between a fast landing and subscription attachment.
+2. Slot commitment updates prove that same slot reached confirmed and finalized.
+3. Transient signature-stream disconnects reconnect with replay while preserving partial lifecycle state.
+4. RPC polling is used only if the stream times out.
+5. Jito inflight and landed status endpoints are consulted when neither source proves landing.
+
+Every finalized record identifies its `lifecycleSource`, allowing the evidence verifier to reject an RPC-only submission package.
+
+## Failure Recovery
+
+| Failure class | Evidence | Typical agent action |
+| --- | --- | --- |
+| `expired_blockhash` | stale blockhash, simulation output, block height | refresh blockhash and retry |
+| `fee_or_tip_too_low` | Jito response or auction/tip error | increase tip multiplier |
+| `compute_exceeded` | simulation logs | abort or rebuild with new compute settings |
+| `bundle_not_landed` | stream/RPC timeout plus Jito status | refresh, reprice, and retry |
+| `skipped_leader` | unavailable leader window or skipped-slot context | delay until another leader |
+| `simulation_failed` | simulation error/logs | abort or rebuild |
+| `stream_timeout` | no stream progression and no reconciliation result | hold or retry from fresh context |
+
+## Operational Decisions
+
+- **Modular monolith:** reduces deployment and coordination overhead while preserving provider boundaries.
+- **JSONL logs:** create portable, append-only evidence without database migrations.
+- **Confirmed blockhashes:** provide freshness without relying on the least stable processed view.
+- **Separate AI boundary:** keeps probabilistic reasoning outside signing and submission.
+- **CLI-first demos:** make live runs reproducible for judges.
+- **Rate limiting:** serializes Jito JSON-RPC calls and applies a minimum live retry delay.
+
+## Evidence Gate
+
+The final live verifier requires:
+
+- at least 10 unique finalized runs
+- a unique transaction signature and bundle id for every finalized run
+- failures in at least 2 distinct runs
+- an expired-blockhash failure linked to an OpenAI refresh decision and later finalization
+- no mock bundle ids or mock submission plans
+- complete, monotonic signatures, slots, timestamps, and exact latency deltas
+- JSONL failure and agent files consistent with the lifecycle file
+- at least 7 Yellowstone-proven finalized runs
+
+Run:
+
+```bash
+pnpm run demo:verify-logs -- --require-live
+```

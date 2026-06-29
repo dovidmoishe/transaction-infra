@@ -1,0 +1,7 @@
+allowBuilds:
+  bigint-buffer: true
+  bufferutil: true
+  esbuild: true
+  protobufjs: true
+  unrs-resolver: true
+  utf-8-validate: true
