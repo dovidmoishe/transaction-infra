@@ -1,5 +1,10 @@
 import { source } from "@/lib/source";
-import { DocsBody, DocsDescription, DocsPage, DocsTitle } from "fumadocs-ui/page";
+import {
+  DocsBody,
+  DocsDescription,
+  DocsPage,
+  DocsTitle,
+} from "fumadocs-ui/layouts/notebook/page";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import { notFound } from "next/navigation";
 
